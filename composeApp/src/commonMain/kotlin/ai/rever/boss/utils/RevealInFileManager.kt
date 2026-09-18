@@ -29,7 +29,7 @@ fun revealInFileManager(path: String): Result<Unit> {
     val validatedPath = try {
         PluginFileSystemSecurity.validateAndNormalizePath(path, "revealInFileManager")
     } catch (e: SecurityException) {
-        revealLogger.warn(LogCategory.SECURITY, "Reveal in file manager denied: path outside allowed boundary", mapOf("path" to path))
+        revealLogger.warn(LogCategory.FILE, "Reveal in file manager denied: path outside allowed boundary", mapOf("path" to path))
         return Result.failure(e)
     }
 

@@ -26,6 +26,12 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `allows access to files within user home directory`() {
+        // Initialize with test directory
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
         val testFile = File(testDir, "test.txt").apply { writeText("test content") }
         val result = PluginFileSystemSecurity.validateAndNormalizePath(testFile.absolutePath, "test")
         assertEquals(testFile.canonicalPath, result)
@@ -33,6 +39,16 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `denies access to files outside user home directory`() {
+        // Initialize with test directory only
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
+        // Remove home directory from allowed roots to force denial
+        val homeFile = File(homeDir)
+        PluginFileSystemSecurity.removeAllowedRoot(homeFile)
+
         // Test system directory access
         val systemPath = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
             "C:\\Windows\\System32"
@@ -43,20 +59,40 @@ class PluginFileSystemSecurityTest {
         val exception = assertFailsWith<SecurityException> {
             PluginFileSystemSecurity.validateAndNormalizePath(systemPath, "test")
         }
-        assertTrue(exception.message!!.contains("outside the allowed boundary"))
+        assertTrue(exception.message!!.contains("outside all allowed filesystem roots"))
     }
 
     @Test
     fun `prevents simple path traversal with double dot`() {
+        // Initialize with test directory only
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
+        // Remove home directory from allowed roots to force denial
+        val homeFile = File(homeDir)
+        PluginFileSystemSecurity.removeAllowedRoot(homeFile)
+
         val maliciousPath = "$homeDir/../../../etc/passwd"
         val exception = assertFailsWith<SecurityException> {
             PluginFileSystemSecurity.validateAndNormalizePath(maliciousPath, "test")
         }
-        assertTrue(exception.message!!.contains("outside the allowed boundary"))
+        assertTrue(exception.message!!.contains("outside all allowed filesystem roots"))
     }
 
     @Test
     fun `prevents path traversal with encoded variants`() {
+        // Initialize with test directory only
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
+        // Remove home directory from allowed roots to force denial
+        val homeFile = File(homeDir)
+        PluginFileSystemSecurity.removeAllowedRoot(homeFile)
+
         // Test various traversal patterns
         val traversalPatterns = listOf(
             "$homeDir/./../etc/passwd",
@@ -69,7 +105,7 @@ class PluginFileSystemSecurityTest {
             val exception = assertFailsWith<SecurityException> {
                 PluginFileSystemSecurity.validateAndNormalizePath(pattern, "test")
             }
-            assertTrue(exception.message!!.contains("outside the allowed boundary"), "Failed for pattern: $pattern")
+            assertTrue(exception.message!!.contains("outside all allowed filesystem roots"), "Failed for pattern: $pattern")
         }
     }
 
@@ -101,6 +137,12 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `normalizes relative paths correctly`() {
+        // Initialize with test directory
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
         val testFile = File(testDir, "test.txt").apply { writeText("test content") }
         val relativePath = "./plugin-security-test/test.txt"
         val result = PluginFileSystemSecurity.validateAndNormalizePath(relativePath, "test")
@@ -109,6 +151,12 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `normalizes paths with current directory references`() {
+        // Initialize with test directory
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
         val testFile = File(testDir, "test.txt").apply { writeText("test content") }
         val pathWithDots = "$homeDir/./plugin-security-test/test.txt"
         val result = PluginFileSystemSecurity.validateAndNormalizePath(pathWithDots, "test")
@@ -117,6 +165,16 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `prevents symlink escape from allowed directory`() {
+        // Initialize with test directory only
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
+        // Remove home directory from allowed roots to force denial
+        val homeFile = File(homeDir)
+        PluginFileSystemSecurity.removeAllowedRoot(homeFile)
+
         val testFile = File(testDir, "test.txt").apply { writeText("test content") }
 
         // Create a symlink that points outside the home directory
@@ -138,11 +196,17 @@ class PluginFileSystemSecurityTest {
         val exception = assertFailsWith<SecurityException> {
             PluginFileSystemSecurity.validateAndNormalizePath(maliciousPath, "test")
         }
-        assertTrue(exception.message!!.contains("outside the allowed boundary"))
+        assertTrue(exception.message!!.contains("outside all allowed filesystem roots"))
     }
 
     @Test
     fun `allows symlink within allowed directory`() {
+        // Initialize with test directory
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
         val targetFile = File(testDir, "target.txt").apply { writeText("target content") }
         val symlink = File(testDir, "safe-link")
 
@@ -159,6 +223,12 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `validates child path within parent directory`() {
+        // Initialize with test directory
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
         val parentPath = testDir.absolutePath
         val childName = "child.txt"
         val result = PluginFileSystemSecurity.validateChildPath(parentPath, childName, "test")
@@ -220,6 +290,12 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `handles platform-specific path separators correctly`() {
+        // Initialize with test directory
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
         val testFile = File(testDir, "test.txt").apply { writeText("test content") }
 
         // Test with forward slashes (should work on all platforms)
@@ -237,12 +313,24 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `allows access to home directory itself`() {
+        // Initialize with test directory
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
         val result = PluginFileSystemSecurity.validateAndNormalizePath(homeDir, "test")
         assertEquals(File(homeDir).canonicalPath, result)
     }
 
     @Test
     fun `prevents case-sensitivity bypass attempts`() {
+        // Initialize with test directory
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
         // On case-insensitive filesystems (Windows, macOS), ensure case variations
         // don't bypass security checks
         val testFile = File(testDir, "Test.txt").apply { writeText("test content") }
@@ -262,6 +350,16 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `provides clear error messages for security violations`() {
+        // Initialize with test directory only
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
+        // Remove home directory from allowed roots to force denial
+        val homeFile = File(homeDir)
+        PluginFileSystemSecurity.removeAllowedRoot(homeFile)
+
         val systemPath = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
             "C:\\Windows\\System32"
         } else {
@@ -274,12 +372,18 @@ class PluginFileSystemSecurityTest {
 
         // Verify error message contains helpful information
         assertTrue(exception.message!!.contains("Access denied"))
-        assertTrue(exception.message!!.contains("allowed boundary"))
+        assertTrue(exception.message!!.contains("allowed filesystem roots"))
         assertTrue(exception.message!!.contains("FilePickerProvider"))
     }
 
     @Test
     fun `handles unicode characters in paths correctly`() {
+        // Initialize with test directory
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
         val unicodeFileName = "test-файл.txt"
         val testFile = File(testDir, unicodeFileName).apply { writeText("test content") }
 
@@ -289,6 +393,16 @@ class PluginFileSystemSecurityTest {
 
     @Test
     fun `prevents directory traversal through parent path`() {
+        // Initialize with test directory only
+        PluginFileSystemSecurity.initializeDefaultRoots(
+            pluginStorageDir = testDir,
+            currentProjectDir = null,
+        )
+
+        // Remove home directory from allowed roots to force denial
+        val homeFile = File(homeDir)
+        PluginFileSystemSecurity.removeAllowedRoot(homeFile)
+
         val parentPath = testDir.absolutePath
         val maliciousParent = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
             "$homeDir\\..\\Windows"
@@ -299,7 +413,7 @@ class PluginFileSystemSecurityTest {
         val exception = assertFailsWith<SecurityException> {
             PluginFileSystemSecurity.validateChildPath(maliciousParent, "test.txt", "test")
         }
-        assertTrue(exception.message!!.contains("outside the allowed boundary"))
+        assertTrue(exception.message!!.contains("outside all allowed filesystem roots"))
     }
 
     /**

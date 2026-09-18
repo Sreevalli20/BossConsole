@@ -27,9 +27,14 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
 
     override suspend fun scanDirectory(path: String): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectory")
-            ai.rever.boss.components.plugin.panels.left_top
-                .scanDirectory(validatedPath)
+            try {
+                val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectory")
+                ai.rever.boss.components.plugin.panels.left_top
+                    .scanDirectory(validatedPath)
+            } catch (e: SecurityException) {
+                logger.warn(LogCategory.FILE, "Scan directory denied by security policy", mapOf("path" to path), e)
+                null
+            }
         }
 
     override suspend fun scanDirectoryWithDepth(
@@ -38,14 +43,24 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         startDepth: Int,
     ): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectoryWithDepth")
-            platformScanDirectoryWithDepth(validatedPath, maxDepth, startDepth)
+            try {
+                val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectoryWithDepth")
+                platformScanDirectoryWithDepth(validatedPath, maxDepth, startDepth)
+            } catch (e: SecurityException) {
+                logger.warn(LogCategory.FILE, "Scan directory with depth denied by security policy", mapOf("path" to path), e)
+                null
+            }
         }
 
     override fun directoryHasChildren(path: String): Boolean {
-        val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "directoryHasChildren")
-        return ai.rever.boss.components.plugin.panels.left_top
-            .directoryHasChildren(validatedPath)
+        return try {
+            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "directoryHasChildren")
+            ai.rever.boss.components.plugin.panels.left_top
+                .directoryHasChildren(validatedPath)
+        } catch (e: SecurityException) {
+            logger.warn(LogCategory.FILE, "Directory has children check denied by security policy", mapOf("path" to path), e)
+            false
+        }
     }
 
     // This host honors the showHidden flag on the read-side scan overloads
@@ -58,9 +73,14 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         showHidden: Boolean,
     ): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectory")
-            ai.rever.boss.components.plugin.panels.left_top
-                .scanDirectory(validatedPath, showHidden)
+            try {
+                val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectory")
+                ai.rever.boss.components.plugin.panels.left_top
+                    .scanDirectory(validatedPath, showHidden)
+            } catch (e: SecurityException) {
+                logger.warn(LogCategory.FILE, "Scan directory denied by security policy", mapOf("path" to path), e)
+                null
+            }
         }
 
     override suspend fun scanDirectoryWithDepth(
@@ -70,26 +90,40 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         showHidden: Boolean,
     ): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectoryWithDepth")
-            platformScanDirectoryWithDepth(validatedPath, maxDepth, startDepth, showHidden)
+            try {
+                val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectoryWithDepth")
+                platformScanDirectoryWithDepth(validatedPath, maxDepth, startDepth, showHidden)
+            } catch (e: SecurityException) {
+                logger.warn(LogCategory.FILE, "Scan directory with depth denied by security policy", mapOf("path" to path), e)
+                null
+            }
         }
 
     override fun directoryHasChildren(
         path: String,
         showHidden: Boolean,
     ): Boolean {
-        val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "directoryHasChildren")
-        return ai.rever.boss.components.plugin.panels.left_top
-            .directoryHasChildren(validatedPath, showHidden)
+        return try {
+            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "directoryHasChildren")
+            ai.rever.boss.components.plugin.panels.left_top
+                .directoryHasChildren(validatedPath, showHidden)
+        } catch (e: SecurityException) {
+            logger.warn(LogCategory.FILE, "Directory has children check denied by security policy", mapOf("path" to path), e)
+            false
+        }
     }
 
     override fun openFile(
         path: String,
         windowId: String,
     ) {
-        val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "openFile")
-        ioScope.launch {
-            FileEventBus.openFile(validatedPath, sourceWindowId = windowId)
+        try {
+            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "openFile")
+            ioScope.launch {
+                FileEventBus.openFile(validatedPath, sourceWindowId = windowId)
+            }
+        } catch (e: SecurityException) {
+            logger.warn(LogCategory.FILE, "Open file denied by security policy", mapOf("path" to path), e)
         }
     }
 
@@ -216,7 +250,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
 
     override fun revealInFileManager(path: String): Result<Unit> {
         // Security validation is now handled in the revealInFileManager utility function
-        return revealInFileManager(path)
+        return ai.rever.boss.utils.revealInFileManager(path)
     }
 
     override fun copyToClipboard(text: String): Result<Unit> =
