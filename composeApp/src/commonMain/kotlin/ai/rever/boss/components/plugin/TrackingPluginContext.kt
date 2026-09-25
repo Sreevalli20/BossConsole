@@ -27,7 +27,6 @@ import ai.rever.boss.plugin.api.McpToolRegistry
 import ai.rever.boss.plugin.api.NavigationResolverProvider
 import ai.rever.boss.plugin.api.NavigationTargetProvider
 import ai.rever.boss.plugin.api.NotificationProvider
-import ai.rever.boss.plugin.api.OrganisationMembersProvider
 import ai.rever.boss.plugin.api.PanelComponentWithUI
 import ai.rever.boss.plugin.api.PanelEventProvider
 import ai.rever.boss.plugin.api.PanelId
@@ -44,7 +43,6 @@ import ai.rever.boss.plugin.api.ProjectSearchProvider
 import ai.rever.boss.plugin.api.RoleManagementProvider
 import ai.rever.boss.plugin.api.RunConfigurationDataProvider
 import ai.rever.boss.plugin.api.ScreenCaptureProvider
-import ai.rever.boss.plugin.api.SearchProvider
 import ai.rever.boss.plugin.api.SecretDataProvider
 import ai.rever.boss.plugin.api.SemanticTokenProvider
 import ai.rever.boss.plugin.api.SettingsProvider
@@ -61,6 +59,10 @@ import ai.rever.boss.plugin.api.UserManagementProvider
 import ai.rever.boss.plugin.api.WorkspaceDataProvider
 import ai.rever.boss.plugin.api.ZoomSettingsProvider
 import ai.rever.boss.plugin.browser.BrowserService
+import ai.rever.boss.plugin.pathutils.BossDirectories
+import ai.rever.boss.utils.PluginFileSystemSecurity
+import ai.rever.boss.utils.logging.BossLogger
+import ai.rever.boss.utils.logging.LogCategory
 import com.arkivanov.decompose.ComponentContext
 import kotlinx.coroutines.CoroutineScope
 import java.util.concurrent.ConcurrentHashMap
@@ -89,8 +91,8 @@ class PluginRegistrationTracker {
 
     /**
      * UI extension teardown callbacks by plugin — panel menus, settings
-     * pages, deep-link handlers, shortcut providers, status-bar items, search
-     * providers. Each registration records the exact undo action captured at register time,
+     * pages, deep-link handlers, shortcut providers, status-bar items. Each
+     * registration records the exact undo action captured at register time,
      * so [unregisterAll] is one loop and a NEW extension kind needs no edit
      * here (the old per-kind enum + per-kind teardown loop meant a forgotten
      * loop would leak a kind past unload).
@@ -339,7 +341,8 @@ class TrackingPluginContext(
     override val llmProvider: LlmProvider? get() = delegate.llmProvider
     override val brokeredCredentialProvider: BrokeredCredentialProvider?
         get() = delegate.brokeredCredentialProvider
-    override val runConfigurationDataProvider: RunConfigurationDataProvider? get() = delegate.runConfigurationDataProvider
+    override val runConfigurationDataProvider: RunConfigurationDataProvider?
+        get() = delegate.runConfigurationDataProvider
     override val activeTabsProvider: ActiveTabsProvider? get() = delegate.activeTabsProvider
     override val windowId: String? get() = delegate.windowId
     override val projectPath: String? get() = delegate.projectPath
@@ -399,9 +402,6 @@ class TrackingPluginContext(
     // Navigation resolver provider - delegate to underlying context
     override val navigationResolverProvider: NavigationResolverProvider? get() = delegate.navigationResolverProvider
 
-    // Organisation co-members - delegate to underlying context
-    override val organisationMembersProvider: OrganisationMembersProvider? get() = delegate.organisationMembersProvider
-
     // Semantic token provider - delegate to underlying context
     override val semanticTokenProvider: SemanticTokenProvider? get() = delegate.semanticTokenProvider
 
@@ -434,23 +434,11 @@ class TrackingPluginContext(
     // Diagnostic provider - delegate to underlying context
     override val diagnosticProvider: DiagnosticProvider? get() = delegate.diagnosticProvider
 
-    // MCP tool provider registration - namespaced with the plugin's own id, and tracked per
-    // plugin so tools are removed automatically in unregisterAll() when the plugin is
-    // disabled/unloaded. The namespace matters because this is the only layer that knows which
-    // plugin is asking, while the provider id is the ONLY key the shared registry has: the host
-    // registers "boss-workspace" straight into it, so a plugin-supplied id passed through raw
-    // lets the plugin re-register (silently replacing) or unregister the host's own workspace
-    // tools - or any other plugin's (#926). Scoped, a plugin can only ever touch providers in
-    // its own namespace: a same-id re-registration replaces only the plugin's own previous
-    // provider, and unregisterMcpToolProvider re-keys the id below, so a plugin unregistering
-    // "boss-workspace" merely no-ops inside its own namespace. A scoped id is also a NEW
-    // provider identity to the policy engine, so a persisted providerRules ALLOW granted to a
-    // raw id cannot auto-apply to tools the plugin registers next. Same pattern as the download
-    // center's per-plugin idPrefix and ScopedPluginStorageFactory: identity is bound once, here.
+    // MCP tool provider registration - track per plugin so tools are removed
+    // automatically in unregisterAll() when the plugin is disabled/unloaded.
     override fun registerMcpToolProvider(provider: McpToolProvider) {
-        val scoped = PluginScopedMcpToolProvider(pluginId, provider)
-        tracker.recordMcpToolProviderRegistration(pluginId, scoped.providerId)
-        delegate.registerMcpToolProvider(scoped)
+        tracker.recordMcpToolProviderRegistration(pluginId, provider.providerId)
+        delegate.registerMcpToolProvider(provider)
     }
 
     // Deliberately does NOT remove providerId from the tracker (unlike a plugin
@@ -459,10 +447,8 @@ class TrackingPluginContext(
     // which ids to unregister and clears everything at once at plugin teardown,
     // so a stale tracker entry here just means unregisterAll() calls the
     // (idempotent) registry unregister a second time for that id — harmless.
-    // The id is re-keyed into this plugin's namespace first: an unregister can
-    // only ever reach providers this plugin registered (#926).
     override fun unregisterMcpToolProvider(providerId: String) {
-        delegate.unregisterMcpToolProvider(scopedMcpProviderId(pluginId, providerId))
+        delegate.unregisterMcpToolProvider(providerId)
     }
 
     override val mcpToolRegistry: McpToolRegistry? get() = delegate.mcpToolRegistry
@@ -522,18 +508,6 @@ class TrackingPluginContext(
         delegate.unregisterStatusBarItem(itemId)
     }
 
-    // Global search providers, recorded the same way. Without these overrides the call reached the
-    // PluginContext default, which does nothing, so no plugin's provider was ever registered.
-    override fun registerSearchProvider(provider: SearchProvider) {
-        val id = provider.providerId
-        tracker.recordUiExtensionRegistration(pluginId) { delegate.unregisterSearchProvider(id) }
-        delegate.registerSearchProvider(provider)
-    }
-
-    override fun unregisterSearchProvider(providerId: String) {
-        delegate.unregisterSearchProvider(providerId)
-    }
-
     // Plugin-to-plugin API access - delegate to underlying context
     override fun <T : Any> getPluginAPI(apiClass: Class<T>): T? = delegate.getPluginAPI(apiClass)
 
@@ -550,9 +524,7 @@ class TrackingPluginContext(
     fun getRegisteredTabTypes(): Set<TabTypeId> = tracker.getTabTypesForPlugin(pluginId)
 
     /**
-     * Unregister everything this plugin registered through this context: panels, tab types, MCP tool
-     * providers and the recorded UI extensions (panel menus, settings pages, deep-link handlers,
-     * shortcuts, status-bar items, search providers).
+     * Unregister all panels and tab types registered by this plugin.
      */
     fun unregisterAll() {
         println("[TrackingPluginContext] unregisterAll called for plugin: $pluginId")
@@ -579,7 +551,7 @@ class TrackingPluginContext(
             delegate.unregisterMcpToolProvider(providerId)
         }
 
-        // Unregister all UI extensions (search providers, panel menu items, settings pages,
+        // Unregister all UI extensions (panel menu items, settings pages,
         // deep-link handlers, shortcuts, status-bar widgets) — same lifecycle
         // guarantee as MCP tools: gone the moment the plugin is disabled. One
         // loop over the recorded undo callbacks; new kinds need no edit here.
@@ -603,38 +575,40 @@ class TrackingPluginContext(
  * manifest identity registered by the host, rather than a per-call argument. This
  * scopes the supported API only: in-process plugins can still access JVM/filesystem
  * facilities, so this wrapper is not a security sandbox.
+ *
+ * Also initializes plugin filesystem security when storage is first created for this plugin.
  */
 private class ScopedPluginStorageFactory(
     private val ownPluginId: String,
     private val delegate: PluginStorageFactory,
 ) : PluginStorageFactory {
-    override fun createStorage(pluginId: String): PluginStorageProvider = delegate.createStorage(ownPluginId)
-}
+    private var securityInitialized = false
 
-/**
- * The provider id a plugin's registration carries in the shared registry: the plugin's own id
- * as the namespace, then the id the plugin chose. [TrackingPluginContext] is the only layer
- * that knows both, and the registry keys providers by id alone (#926).
- */
-private fun scopedMcpProviderId(
-    pluginId: String,
-    providerId: String,
-): String = "$pluginId::$providerId"
+    override fun createStorage(pluginId: String): PluginStorageProvider {
+        // Initialize filesystem security on first storage creation for this plugin
+        if (!securityInitialized) {
+            initializePluginSecurity()
+            securityInitialized = true
+        }
+        return delegate.createStorage(ownPluginId)
+    }
 
-/**
- * [McpToolProvider] view of a plugin-registered provider that carries the plugin-scoped id.
- * The interface is exactly two members, so delegation is total: the plugin keeps its tool
- * definitions and their NAMES unchanged (so its `mcp__boss__<tool>` names keep working), while
- * the id - the only thing a later unregister or a same-id re-registration acts on - is the
- * scoped one. This is not a security sandbox; it is name scoping, the same guarantee
- * [ScopedPluginStorageFactory] and the download center's per-plugin idPrefix already give
- * their ids.
- */
-private class PluginScopedMcpToolProvider(
-    pluginId: String,
-    private val delegate: McpToolProvider,
-) : McpToolProvider {
-    override val providerId: String = scopedMcpProviderId(pluginId, delegate.providerId)
-
-    override fun tools(): List<ai.rever.boss.plugin.api.McpToolDefinition> = delegate.tools()
+    private fun initializePluginSecurity() {
+        try {
+            val pluginStorageDir = BossDirectories.resolve("plugin-data/$ownPluginId")
+            PluginFileSystemSecurity.initializeDefaultRoots(
+                pluginStorageDir = pluginStorageDir,
+                currentProjectDir = null,
+            )
+        } catch (e: java.io.IOException) {
+            // Log but don't fail - security initialization is best-effort
+            @Suppress("TooGenericExceptionCaught")
+            BossLogger.forComponent("ScopedPluginStorageFactory").warn(
+                LogCategory.FILE,
+                "Failed to initialize plugin filesystem security",
+                mapOf("pluginId" to ownPluginId),
+                e,
+            )
+        }
+    }
 }
