@@ -27,7 +27,7 @@ class RelocatedDownloadsAccessTest {
     private val outside = Files.createTempDirectory("boss-relocated-downloads").toFile().canonicalFile
     private val downloads = File(outside, "Downloads").apply { mkdirs() }
     private val sibling = File(outside, "Elsewhere").apply { mkdirs() }
-    private val provider = FileSystemDataProviderImpl { downloads.path }
+    private val provider = FileSystemDataProviderImpl(downloadsDirectory = { downloads.path }, allowedRoots = emptySet())
 
     @AfterTest
     fun cleanUp() {
@@ -146,14 +146,14 @@ class RelocatedDownloadsAccessTest {
     @Test
     fun `a Downloads folder that cannot be resolved refuses rather than failing with an I-O error`() {
         // A NUL character makes canonicalFile throw an IOException on every platform.
-        val unresolvable = FileSystemDataProviderImpl { File(outside, "Down\u0000loads").path }
+        val unresolvable = FileSystemDataProviderImpl(downloadsDirectory = { File(outside, "Down\u0000loads").path }, allowedRoots = emptySet())
 
         assertRefused(runBlocking { unresolvable.writeFile(File(sibling, "note.txt").path, "saved") }, "a write")
     }
 
     @Test
     fun `a Downloads folder at a filesystem root admits nothing outside home`() {
-        val rootProvider = FileSystemDataProviderImpl { outside.toPath().root.toString() }
+        val rootProvider = FileSystemDataProviderImpl(downloadsDirectory = { outside.toPath().root.toString() }, allowedRoots = emptySet())
 
         val result = runBlocking { rootProvider.writeFile(File(sibling, "note.txt").path, "saved") }
 
