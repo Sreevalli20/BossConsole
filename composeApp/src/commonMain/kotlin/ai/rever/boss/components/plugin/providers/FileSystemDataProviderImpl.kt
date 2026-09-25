@@ -394,6 +394,14 @@ class FileSystemDataProviderImpl(
                 val validatedPath = validatePath(path, "writeFile")
                 val file = java.io.File(validatedPath)
 
+                // Additional check: if the path is a symlink/junction, verify its target is within allowed roots
+                if (file.exists() && Files.isSymbolicLink(file.toPath())) {
+                    val targetPath = file.toPath().toRealPath()
+                    if (!isPathWithinAllowedRoots(File(targetPath.toString()))) {
+                        throw SecurityException("Access denied: symlink target is outside allowed roots")
+                    }
+                }
+
                 // Ensure parent directory exists
                 val parentDir = file.parentFile
                 if (parentDir != null && !parentDir.exists()) {
@@ -402,6 +410,9 @@ class FileSystemDataProviderImpl(
 
                 file.writeText(content)
                 Result.success(Unit)
+            } catch (e: SecurityException) {
+                logger.warn(LogCategory.FILE, "Write file denied by security policy", mapOf("path" to path), e)
+                Result.failure(e)
             } catch (e: Exception) {
                 logger.warn(LogCategory.FILE, "Failed to write file", mapOf("path" to path), error = e)
                 Result.failure(e)

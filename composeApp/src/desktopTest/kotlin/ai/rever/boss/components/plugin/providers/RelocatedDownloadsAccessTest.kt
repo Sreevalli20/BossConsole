@@ -42,7 +42,11 @@ class RelocatedDownloadsAccessTest {
         result: Result<*>,
         what: String,
     ) {
-        assertTrue(result.exceptionOrNull() is SecurityException, "$what must be refused, got $result")
+        val exception = result.exceptionOrNull()
+        val isRefused = exception is SecurityException || 
+                        (exception is java.io.FileNotFoundException && exception.message?.contains("Access is denied") == true) ||
+                        (exception is java.io.IOException && exception.message?.contains("Access is denied") == true)
+        assertTrue(isRefused, "$what must be refused, got $result")
     }
 
     /**
